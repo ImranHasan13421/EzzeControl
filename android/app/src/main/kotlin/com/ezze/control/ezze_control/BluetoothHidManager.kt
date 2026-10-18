@@ -557,12 +557,19 @@ class BluetoothHidManager(private val context: Context) {
         }
     }
 
+    private val mouseReportBuffer = ByteArray(4)
+
     /**
      * Send relative mouse movement and optional button/wheel.
      */
     fun sendMouseMovement(buttons: Byte, dx: Int, dy: Int, wheel: Int = 0): Boolean {
-        val report = HidReportEncoder.encodeMouse(buttons, dx, dy, wheel)
-        return sendReport(HidReportDescriptor.REPORT_ID_MOUSE, report)
+        synchronized(mouseReportBuffer) {
+            mouseReportBuffer[0] = buttons
+            mouseReportBuffer[1] = HidReportEncoder.clampToByte(dx)
+            mouseReportBuffer[2] = HidReportEncoder.clampToByte(dy)
+            mouseReportBuffer[3] = HidReportEncoder.clampToByte(wheel)
+            return sendReport(HidReportDescriptor.REPORT_ID_MOUSE, mouseReportBuffer)
+        }
     }
 
     /**

@@ -21,16 +21,24 @@ class ScrollStrip extends StatefulWidget {
 }
 
 class _ScrollStripState extends State<ScrollStrip> {
-  bool _isInteracting = false;
-  double _accumulatedDelta = 0.0;
-  double _thumbPositionRatio = 0.5; // Visual feedback position
+  final ValueNotifier<bool> _isInteractingNotifier = ValueNotifier<bool>(false);
+  final ValueNotifier<double> _thumbPositionRatio = ValueNotifier<double>(0.5);
+
+  double _residualWheel = 0.0;
+  int _queuedWheel = 0;
+  bool _isDispatching = false;
+
+  @override
+  void dispose() {
+    _isInteractingNotifier.dispose();
+    _thumbPositionRatio.dispose();
+    super.dispose();
+  }
 
   void _onVerticalDragStart(DragStartDetails details) {
     if (!widget.isConnected) return;
-    setState(() {
-      _isInteracting = true;
-      _accumulatedDelta = 0.0;
-    });
+    _isInteractingNotifier.value = true;
+    _residualWheel = 0.0;
     if (widget.settings.hapticsEnabled) {
       HapticFeedback.selectionClick();
     }
@@ -44,47 +52,61 @@ class _ScrollStripState extends State<ScrollStrip> {
       dy = -dy;
     }
 
-    _accumulatedDelta += dy;
+    // Windows HID wheel: dragging downward (dy > 0) means scroll DOWN (-wheel)
+    // Moving up (dy < 0) means scroll UP (+wheel)
+    _residualWheel += (-dy * widget.settings.scrollSensitivity * 0.75);
 
-    // Send wheel event every small step (e.g., 4 logical px)
-    if (_accumulatedDelta.abs() >= 4.0) {
-      // In Windows HID: positive is UP (+wheel), negative is DOWN (-wheel)
-      // Dragging downward (dy > 0) means scroll down (-wheel)
-      final wheelUnits = ((-_accumulatedDelta / 4.0) * widget.settings.scrollSensitivity * 3.0)
-          .round()
-          .clamp(-127, 127);
+    final int sendWheel = _residualWheel.truncate();
+    _residualWheel -= sendWheel;
 
-      if (wheelUnits != 0) {
-        widget.repository.sendMouseMovement(
-          buttons: 0,
-          dx: 0,
-          dy: 0,
-          wheel: wheelUnits,
-        );
-        if (widget.settings.hapticsEnabled) {
-          HapticFeedback.selectionClick();
-        }
+    if (sendWheel != 0) {
+      _queueWheel(sendWheel);
+      if (widget.settings.hapticsEnabled && sendWheel.abs() >= 2) {
+        HapticFeedback.selectionClick();
       }
-      _accumulatedDelta = 0.0;
     }
 
-    setState(() {
-      _thumbPositionRatio = (_thumbPositionRatio + details.delta.dy / 300.0).clamp(0.1, 0.9);
-    });
+    // Smooth visual thumb position update
+    final currentRatio = _thumbPositionRatio.value;
+    _thumbPositionRatio.value = (currentRatio + details.delta.dy / 280.0).clamp(0.12, 0.88);
   }
 
   void _onVerticalDragEnd(DragEndDetails details) {
-    setState(() {
-      _isInteracting = false;
-      _thumbPositionRatio = 0.5;
-    });
+    _isInteractingNotifier.value = false;
+    _thumbPositionRatio.value = 0.5;
   }
 
   void _onVerticalDragCancel() {
-    setState(() {
-      _isInteracting = false;
-      _thumbPositionRatio = 0.5;
-    });
+    _isInteractingNotifier.value = false;
+    _thumbPositionRatio.value = 0.5;
+  }
+
+  void _queueWheel(int wheelUnits) {
+    _queuedWheel += wheelUnits;
+    if (!_isDispatching) {
+      _dispatchLoop();
+    }
+  }
+
+  Future<void> _dispatchLoop() async {
+    if (_isDispatching) return;
+    _isDispatching = true;
+
+    while (mounted && _queuedWheel != 0) {
+      final toSend = _queuedWheel.clamp(-127, 127);
+      _queuedWheel -= toSend;
+
+      try {
+        await widget.repository.sendMouseMovement(
+          buttons: 0,
+          dx: 0,
+          dy: 0,
+          wheel: toSend,
+        );
+      } catch (_) {}
+    }
+
+    _isDispatching = false;
   }
 
   @override
@@ -94,89 +116,111 @@ class _ScrollStripState extends State<ScrollStrip> {
       onVerticalDragUpdate: _onVerticalDragUpdate,
       onVerticalDragEnd: _onVerticalDragEnd,
       onVerticalDragCancel: _onVerticalDragCancel,
-      child: Container(
-        width: 38,
-        decoration: BoxDecoration(
-          color: _isInteracting
-              ? AppTheme.surfaceHover
-              : AppTheme.surfaceVariant.withValues(alpha: 0.3),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: _isInteracting ? AppTheme.primaryLight : AppTheme.borderSubtle,
-            width: 1.0,
-          ),
-        ),
-        child: Column(
-          children: [
-            const Padding(
-              padding: EdgeInsets.only(top: 8),
-              child: Icon(
-                Icons.keyboard_arrow_up,
-                color: AppTheme.textMuted,
-                size: 16,
+      child: ValueListenableBuilder<bool>(
+        valueListenable: _isInteractingNotifier,
+        builder: (context, isInteracting, _) {
+          return Container(
+            width: 38,
+            decoration: BoxDecoration(
+              color: isInteracting
+                  ? AppTheme.surfaceHover
+                  : AppTheme.surfaceVariant.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isInteracting ? AppTheme.primaryLight : AppTheme.borderSubtle,
+                width: 1.0,
               ),
             ),
-            const Spacer(),
-            // Animated tactile thumb indicator
-            Container(
-              width: 22,
-              height: 48,
-              decoration: BoxDecoration(
-                color: _isInteracting
-                    ? AppTheme.primary
-                    : AppTheme.surfaceVariant,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: _isInteracting
-                      ? AppTheme.primaryLight
-                      : AppTheme.borderSubtle,
+            child: Column(
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Icon(
+                    Icons.keyboard_arrow_up,
+                    color: AppTheme.textMuted,
+                    size: 16,
+                  ),
                 ),
-              ),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 12,
-                      height: 2,
-                      decoration: BoxDecoration(
-                        color: _isInteracting ? Colors.white : AppTheme.textMuted,
-                        borderRadius: BorderRadius.circular(1),
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Container(
-                      width: 12,
-                      height: 2,
-                      decoration: BoxDecoration(
-                        color: _isInteracting ? Colors.white : AppTheme.textMuted,
-                        borderRadius: BorderRadius.circular(1),
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Container(
-                      width: 12,
-                      height: 2,
-                      decoration: BoxDecoration(
-                        color: _isInteracting ? Colors.white : AppTheme.textMuted,
-                        borderRadius: BorderRadius.circular(1),
-                      ),
-                    ),
-                  ],
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      return ValueListenableBuilder<double>(
+                        valueListenable: _thumbPositionRatio,
+                        builder: (context, ratio, _) {
+                          final thumbY = (constraints.maxHeight - 48) * ratio;
+                          return Stack(
+                            children: [
+                              Positioned(
+                                top: thumbY.clamp(0.0, constraints.maxHeight - 48),
+                                left: 7,
+                                child: Container(
+                                  width: 24,
+                                  height: 48,
+                                  decoration: BoxDecoration(
+                                    color: isInteracting
+                                        ? AppTheme.primary
+                                        : AppTheme.surfaceVariant,
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: isInteracting
+                                          ? AppTheme.primaryLight
+                                          : AppTheme.borderSubtle,
+                                    ),
+                                  ),
+                                  child: Center(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          width: 12,
+                                          height: 2,
+                                          decoration: BoxDecoration(
+                                            color: isInteracting ? Colors.white : AppTheme.textMuted,
+                                            borderRadius: BorderRadius.circular(1),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Container(
+                                          width: 12,
+                                          height: 2,
+                                          decoration: BoxDecoration(
+                                            color: isInteracting ? Colors.white : AppTheme.textMuted,
+                                            borderRadius: BorderRadius.circular(1),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Container(
+                                          width: 12,
+                                          height: 2,
+                                          decoration: BoxDecoration(
+                                            color: isInteracting ? Colors.white : AppTheme.textMuted,
+                                            borderRadius: BorderRadius.circular(1),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      );
+                    },
+                  ),
                 ),
-              ),
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 8),
+                  child: Icon(
+                    Icons.keyboard_arrow_down,
+                    color: AppTheme.textMuted,
+                    size: 16,
+                  ),
+                ),
+              ],
             ),
-            const Spacer(),
-            const Padding(
-              padding: EdgeInsets.only(bottom: 8),
-              child: Icon(
-                Icons.keyboard_arrow_down,
-                color: AppTheme.textMuted,
-                size: 16,
-              ),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

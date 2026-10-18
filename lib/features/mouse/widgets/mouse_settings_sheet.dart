@@ -107,10 +107,10 @@ class _MouseSettingsSheetState extends State<MouseSettingsSheet> {
             ],
           ),
           Slider(
-            value: _settings.sensitivity,
-            min: 0.5,
-            max: 3.0,
-            divisions: 25,
+            value: _settings.sensitivity.clamp(0.4, 3.5),
+            min: 0.4,
+            max: 3.5,
+            divisions: 31,
             activeColor: AppTheme.primary,
             inactiveColor: AppTheme.surfaceVariant,
             onChanged: (val) {

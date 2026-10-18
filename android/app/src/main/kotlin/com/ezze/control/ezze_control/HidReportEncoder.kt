@@ -51,6 +51,11 @@ object HidReportEncoder {
         )
     }
 
+    fun clampToByte(value: Int): Byte {
+        val clamped = max(-127, min(127, value))
+        return clamped.toByte()
+    }
+
     /**
      * Empty mouse report releasing all buttons and zero movement.
      */
@@ -81,9 +86,4 @@ object HidReportEncoder {
      * Empty keyboard report releasing all modifiers and keys.
      */
     fun emptyKeyboard(): ByteArray = ByteArray(8)
-
-    private fun clampToByte(value: Int): Byte {
-        val clamped = max(-127, min(127, value))
-        return clamped.toByte()
-    }
 }
