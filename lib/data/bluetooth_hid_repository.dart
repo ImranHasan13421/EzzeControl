@@ -175,6 +175,16 @@ class BluetoothHidRepository extends ChangeNotifier {
     }
   }
 
+  Future<bool> makeDiscoverable({int duration = 300}) async {
+    try {
+      final ok = await _methodChannel.invokeMethod<bool>('makeDiscoverable', {'duration': duration}) ?? false;
+      return ok;
+    } catch (e) {
+      debugPrint('Error making discoverable: $e');
+      return false;
+    }
+  }
+
   Future<void> sendMouseMovement({
     required int dx,
     required int dy,

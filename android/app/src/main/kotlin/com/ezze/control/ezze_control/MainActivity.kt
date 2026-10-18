@@ -2,11 +2,13 @@ package com.ezze.control.ezze_control
 
 import android.Manifest
 import android.app.Activity
+import android.bluetooth.BluetoothAdapter
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.speech.RecognizerIntent
+import android.view.WindowManager
 import androidx.core.app.ActivityCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -16,6 +18,7 @@ class MainActivity : FlutterActivity(), HidPlatformChannel.ActivityCallbacks {
     companion object {
         private const val PERMISSION_REQUEST_CODE = 1001
         private const val SPEECH_REQUEST_CODE = 1002
+        private const val DISCOVERABLE_REQUEST_CODE = 1003
     }
 
     private var hidManager: BluetoothHidManager? = null
@@ -23,9 +26,13 @@ class MainActivity : FlutterActivity(), HidPlatformChannel.ActivityCallbacks {
 
     private var pendingPermissionCallback: ((Boolean) -> Unit)? = null
     private var pendingSpeechCallback: ((String?) -> Unit)? = null
+    private var pendingDiscoverableCallback: ((Boolean) -> Unit)? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // Keep screen awake while Ezze Control is active so Bluetooth HID profile isn't suspended
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val manager = BluetoothHidManager(this)
         this.hidManager = manager
@@ -37,6 +44,16 @@ class MainActivity : FlutterActivity(), HidPlatformChannel.ActivityCallbacks {
 
         // Pre-initialize profile on launch
         manager.initProfile()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Ensure HID registration stays alive if system revoked it while asleep
+        hidManager?.let { mgr ->
+            if (!mgr.isRegistered) {
+                mgr.registerHid()
+            }
+        }
     }
 
     override fun requestPermissions(callback: (Boolean) -> Unit) {
@@ -89,6 +106,19 @@ class MainActivity : FlutterActivity(), HidPlatformChannel.ActivityCallbacks {
         }
     }
 
+    override fun makeDiscoverable(durationSeconds: Int, callback: (Boolean) -> Unit) {
+        pendingDiscoverableCallback = callback
+        try {
+            val intent = Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE).apply {
+                putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, durationSeconds)
+            }
+            startActivityForResult(intent, DISCOVERABLE_REQUEST_CODE)
+        } catch (e: Exception) {
+            pendingDiscoverableCallback?.invoke(false)
+            pendingDiscoverableCallback = null
+        }
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == SPEECH_REQUEST_CODE) {
@@ -100,6 +130,10 @@ class MainActivity : FlutterActivity(), HidPlatformChannel.ActivityCallbacks {
                 pendingSpeechCallback?.invoke(null)
             }
             pendingSpeechCallback = null
+        } else if (requestCode == DISCOVERABLE_REQUEST_CODE) {
+            val success = resultCode != Activity.RESULT_CANCELED
+            pendingDiscoverableCallback?.invoke(success)
+            pendingDiscoverableCallback = null
         }
     }
 

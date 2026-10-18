@@ -208,6 +208,123 @@ class _MousePadScreenState extends State<MousePadScreen> {
     );
   }
 
+  void _showTroubleshootingGuide() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+        decoration: const BoxDecoration(
+          color: Color(0xFF1E222A),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF475569),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: const [
+                Icon(Icons.build_circle, color: Color(0xFF38BDF8), size: 28),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'PC Not Receiving Input?',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F172A),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF334155)),
+              ),
+              child: const Text(
+                'Windows queries Bluetooth capabilities ONLY during initial pairing. If your phone was paired before Ezze Control was installed, Windows treats it as an Audio device instead of Mouse & Keyboard.',
+                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13, height: 1.4),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Quick 30-Second Fix:',
+              style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            _buildGuideBullet('1', 'On PC, open Settings > Bluetooth & devices'),
+            _buildGuideBullet('2', 'Click the 3 dots on your phone and select "Remove device"'),
+            _buildGuideBullet('3', 'Tap "Make Discoverable" below, then on PC click "Add device" > "Bluetooth"'),
+            _buildGuideBullet('4', 'Select your phone. Windows will instantly bind the HID Mouse & Keyboard drivers!'),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: const Icon(Icons.bluetooth_searching, size: 20),
+                    label: const Text('Make Phone Discoverable', style: TextStyle(fontWeight: FontWeight.bold)),
+                    onPressed: () async {
+                      Navigator.of(ctx).pop();
+                      await _hidRepo.makeDiscoverable();
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGuideBullet(String step, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            alignment: Alignment.center,
+            decoration: const BoxDecoration(
+              color: Color(0xFF2563EB),
+              shape: BoxShape.circle,
+            ),
+            child: Text(step, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(text, style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, height: 1.3)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final deviceName = widget.device.name.isNotEmpty
@@ -366,7 +483,19 @@ class _MousePadScreenState extends State<MousePadScreen> {
                             style: const TextStyle(color: Colors.white, fontSize: 13),
                           ),
                         ),
-                        if (!isConnecting)
+                        if (!isConnecting) ...[
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              foregroundColor: const Color(0xFF38BDF8),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            icon: const Icon(Icons.help_outline, size: 16),
+                            label: const Text('Guide', style: TextStyle(fontSize: 12)),
+                            onPressed: _showTroubleshootingGuide,
+                          ),
+                          const SizedBox(width: 6),
                           ElevatedButton(
                             style: ElevatedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -379,6 +508,7 @@ class _MousePadScreenState extends State<MousePadScreen> {
                             onPressed: () => _hidRepo.connect(widget.device),
                             child: const Text('Reconnect', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                           ),
+                        ],
                       ],
                     ),
                   ),

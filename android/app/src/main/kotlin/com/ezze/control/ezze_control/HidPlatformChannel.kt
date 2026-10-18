@@ -20,6 +20,7 @@ class HidPlatformChannel(
     interface ActivityCallbacks {
         fun requestPermissions(callback: (Boolean) -> Unit)
         fun startSpeechRecognition(callback: (String?) -> Unit)
+        fun makeDiscoverable(durationSeconds: Int, callback: (Boolean) -> Unit)
     }
 
     companion object {
@@ -183,6 +184,13 @@ class HidPlatformChannel(
             "requestSpeechInput" -> {
                 activityCallbacks.startSpeechRecognition { recognizedText ->
                     result.success(recognizedText)
+                }
+            }
+
+            "makeDiscoverable" -> {
+                val duration = call.argument<Int>("duration") ?: 300
+                activityCallbacks.makeDiscoverable(duration) { success ->
+                    result.success(success)
                 }
             }
 

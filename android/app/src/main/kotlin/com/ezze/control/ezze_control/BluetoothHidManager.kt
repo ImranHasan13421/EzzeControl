@@ -45,6 +45,8 @@ class BluetoothHidManager(private val context: Context) {
     var hidProxy: BluetoothHidDevice? = null
     var connectedDevice: BluetoothDevice? = null
     var pendingConnectDevice: BluetoothDevice? = null
+    private var isIntentionalUnregister = false
+    private var connectionTimeoutRunnable: Runnable? = null
 
     // State tracking
     var isProfileRequestPending = false
@@ -136,6 +138,16 @@ class BluetoothHidManager(private val context: Context) {
                     "registration_failed",
                     lastError ?: "Registration failed."
                 )
+
+                // Auto-recover if registration was revoked unexpectedly while app is active
+                if (!isIntentionalUnregister && isProfileAvailable) {
+                    Log.w(TAG, "HID registration dropped unexpectedly; scheduling re-registration in 1500ms...")
+                    mainHandler.postDelayed({
+                        if (!isRegistered && !isIntentionalUnregister) {
+                            registerHid()
+                        }
+                    }, 1500)
+                }
             }
         }
 
@@ -143,6 +155,14 @@ class BluetoothHidManager(private val context: Context) {
             super.onConnectionStateChanged(device, state)
             Log.i(TAG, "onConnectionStateChanged: device=${device?.address}, state=$state (${connectionStateToString(state)})")
             connectionState = state
+
+            // Cancel any pending connection timeout once a terminal state is reached
+            if (state == BluetoothProfile.STATE_CONNECTED || state == BluetoothProfile.STATE_DISCONNECTED) {
+                connectionTimeoutRunnable?.let {
+                    mainHandler.removeCallbacks(it)
+                    connectionTimeoutRunnable = null
+                }
+            }
 
             when (state) {
                 BluetoothProfile.STATE_CONNECTED -> {
@@ -265,6 +285,7 @@ class BluetoothHidManager(private val context: Context) {
      * Registers the application as a Bluetooth HID composite device (Mouse + Keyboard).
      */
     fun registerHid(): Boolean {
+        isIntentionalUnregister = false
         if (isRegistered) {
             return true
         }
@@ -312,6 +333,7 @@ class BluetoothHidManager(private val context: Context) {
      * Unregisters the HID application.
      */
     fun unregisterHid(): Boolean {
+        isIntentionalUnregister = true
         val proxy = hidProxy ?: return true
         return try {
             releaseAllInputs()
@@ -357,12 +379,26 @@ class BluetoothHidManager(private val context: Context) {
 
     private fun connectInternal(device: BluetoothDevice): Boolean {
         val proxy = hidProxy ?: return false
+        connectionTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
         return try {
             connectedDevice = device
             connectionState = BluetoothProfile.STATE_CONNECTING
             notifyEvent("device_connecting", "Connecting to ${safeGetDeviceName(device)}...")
             val ok = proxy.connect(device)
             Log.i(TAG, "proxy.connect(${device.address}) returned $ok")
+
+            // 8-second safety timeout in case Windows drops L2CAP connection silently
+            val timeout = Runnable {
+                if (connectionState == BluetoothProfile.STATE_CONNECTING) {
+                    Log.w(TAG, "Connection attempt to ${device.address} timed out.")
+                    connectionState = BluetoothProfile.STATE_DISCONNECTED
+                    lastError = "Connection timed out. If you recently paired your phone, please remove and re-pair it in Windows Bluetooth Settings."
+                    notifyEvent("connection_failed", lastError!!)
+                }
+            }
+            connectionTimeoutRunnable = timeout
+            mainHandler.postDelayed(timeout, 8000)
+
             ok
         } catch (e: Exception) {
             lastError = "Error connecting to device: ${e.message}"
