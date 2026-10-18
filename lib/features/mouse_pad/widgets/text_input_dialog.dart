@@ -78,16 +78,17 @@ class _TextInputDialogState extends State<TextInputDialog> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF2563EB), // Blue button
                         foregroundColor: Colors.white,
+                        padding: EdgeInsets.zero,
                         elevation: 0,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(24),
                         ),
                       ),
-                      child: const Text('Clear', style: TextStyle(fontWeight: FontWeight.w600)),
+                      child: const Text('Clear', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 Expanded(
                   child: SizedBox(
                     height: 48,
@@ -102,16 +103,17 @@ class _TextInputDialogState extends State<TextInputDialog> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF22C55E), // Green button
                         foregroundColor: Colors.white,
+                        padding: EdgeInsets.zero,
                         elevation: 0,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(24),
                         ),
                       ),
-                      child: const Text('Send', style: TextStyle(fontWeight: FontWeight.w600)),
+                      child: const Text('Send', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 Expanded(
                   child: SizedBox(
                     height: 48,
@@ -120,12 +122,13 @@ class _TextInputDialogState extends State<TextInputDialog> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFEF4444), // Red button
                         foregroundColor: Colors.white,
+                        padding: EdgeInsets.zero,
                         elevation: 0,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(24),
                         ),
                       ),
-                      child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w600)),
+                      child: const Text('Cancel', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                     ),
                   ),
                 ),
