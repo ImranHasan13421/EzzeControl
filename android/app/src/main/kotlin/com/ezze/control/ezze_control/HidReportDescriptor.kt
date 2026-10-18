@@ -31,7 +31,7 @@ object HidReportDescriptor {
         // 3 padding bits to complete the button byte
         0x95.toByte(), 0x01.toByte(), //     Report Count (1)
         0x75.toByte(), 0x03.toByte(), //     Report Size (3)
-        0x81.toByte(), 0x01.toByte(), //     Input (Const,Array,Abs)
+        0x81.toByte(), 0x03.toByte(), //     Input (Const,Var,Abs)
         // X and Y relative movement
         0x05.toByte(), 0x01.toByte(), //     Usage Page (Generic Desktop Ctrls)
         0x09.toByte(), 0x30.toByte(), //     Usage (X)
@@ -70,7 +70,7 @@ object HidReportDescriptor {
         // Reserved byte
         0x95.toByte(), 0x01.toByte(), //   Report Count (1)
         0x75.toByte(), 0x08.toByte(), //   Report Size (8)
-        0x81.toByte(), 0x01.toByte(), //   Input (Const,Array,Abs)
+        0x81.toByte(), 0x03.toByte(), //   Input (Const,Var,Abs)
         // 5 LEDs output report
         0x95.toByte(), 0x05.toByte(), //   Report Count (5)
         0x75.toByte(), 0x01.toByte(), //   Report Size (1)
@@ -81,7 +81,7 @@ object HidReportDescriptor {
         // 3 bits LED padding
         0x95.toByte(), 0x01.toByte(), //   Report Count (1)
         0x75.toByte(), 0x03.toByte(), //   Report Size (3)
-        0x91.toByte(), 0x01.toByte(), //   Output (Const,Array,Abs)
+        0x91.toByte(), 0x03.toByte(), //   Output (Const,Var,Abs)
         // Key codes array (6 keys rollover)
         0x95.toByte(), 0x06.toByte(), //   Report Count (6)
         0x75.toByte(), 0x08.toByte(), //   Report Size (8)

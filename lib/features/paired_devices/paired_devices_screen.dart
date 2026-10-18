@@ -93,6 +93,23 @@ class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
           ),
         ),
         actions: [
+          // Make Discoverable to PC button
+          IconButton(
+            icon: const Icon(Icons.bluetooth_searching, color: Color(0xFF38BDF8), size: 24),
+            tooltip: 'Make Discoverable to PC',
+            onPressed: () async {
+              await _hidRepo.makeDiscoverable();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Phone is now discoverable. On PC, click "Add device > Bluetooth"'),
+                    backgroundColor: Color(0xFF2563EB),
+                    duration: Duration(seconds: 4),
+                  ),
+                );
+              }
+            },
+          ),
           // Open phone Bluetooth settings button (matching 2nd image)
           IconButton(
             icon: const Icon(Icons.bluetooth, color: Colors.white, size: 26),
@@ -120,6 +137,54 @@ class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           children: [
+            // Pro-tip card for Windows pairing
+            Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF1E3A8A), Color(0xFF1E293B)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF3B82F6).withValues(alpha: 0.4)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.laptop_chromebook, color: Color(0xFF60A5FA), size: 28),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: const [
+                        Text(
+                          'Pairing with a PC?',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Stay in Ezze Control while pairing so Windows detects it as Mouse & Keyboard.',
+                          style: TextStyle(color: Color(0xFF93C5FD), fontSize: 12, height: 1.3),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onPressed: () => _hidRepo.makeDiscoverable(),
+                    child: const Text('Pair PC', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  ),
+                ],
+              ),
+            ),
+
             // Section 1 Header: Paired Devices (matching 2nd image)
             _buildSectionHeader('Paired Devices'),
             const SizedBox(height: 12),
