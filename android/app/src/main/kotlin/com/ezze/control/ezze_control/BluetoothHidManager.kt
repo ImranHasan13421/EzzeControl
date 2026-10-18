@@ -44,6 +44,7 @@ class BluetoothHidManager(private val context: Context) {
 
     var hidProxy: BluetoothHidDevice? = null
     var connectedDevice: BluetoothDevice? = null
+    var pendingConnectDevice: BluetoothDevice? = null
 
     // State tracking
     var isProfileRequestPending = false
@@ -78,9 +79,8 @@ class BluetoothHidManager(private val context: Context) {
                     "Bluetooth HID profile proxy acquired successfully."
                 )
 
-                if (isRegistering) {
-                    executeRegistration()
-                }
+                // Auto-register HID composite service immediately on proxy connection
+                executeRegistration()
             }
         }
 
@@ -123,6 +123,13 @@ class BluetoothHidManager(private val context: Context) {
                     "registration_success",
                     "HID Application successfully registered with Android Bluetooth stack."
                 )
+
+                // If connection was queued awaiting registration, execute it now!
+                pendingConnectDevice?.let { dev ->
+                    pendingConnectDevice = null
+                    Log.i(TAG, "Executing pending connection to ${dev.address} post-registration")
+                    connectInternal(dev)
+                }
             } else {
                 lastError = "HID application registration was rejected or revoked by Android."
                 notifyEvent(
@@ -158,6 +165,60 @@ class BluetoothHidManager(private val context: Context) {
                     notifyEvent("device_disconnected", "Disconnected from host.")
                 }
             }
+        }
+
+        override fun onGetReport(device: BluetoothDevice?, type: Byte, id: Byte, bufferSize: Int) {
+            super.onGetReport(device, type, id, bufferSize)
+            Log.i(TAG, "onGetReport: device=${device?.address}, type=$type, id=$id, bufferSize=$bufferSize")
+            val proxy = hidProxy ?: return
+            if (device == null) return
+
+            if (type == BluetoothHidDevice.REPORT_TYPE_INPUT) {
+                when (id) {
+                    HidReportDescriptor.REPORT_ID_MOUSE -> {
+                        proxy.replyReport(device, type, id, HidReportEncoder.emptyMouse())
+                    }
+                    HidReportDescriptor.REPORT_ID_KEYBOARD -> {
+                        proxy.replyReport(device, type, id, HidReportEncoder.emptyKeyboard())
+                    }
+                    else -> {
+                        proxy.reportError(device, BluetoothHidDevice.ERROR_RSP_INVALID_RPT_ID)
+                    }
+                }
+            } else if (type == BluetoothHidDevice.REPORT_TYPE_OUTPUT || type == BluetoothHidDevice.REPORT_TYPE_FEATURE) {
+                proxy.replyReport(device, type, id, ByteArray(bufferSize.coerceAtLeast(1)))
+            } else {
+                proxy.reportError(device, BluetoothHidDevice.ERROR_RSP_UNSUPPORTED_REQ)
+            }
+        }
+
+        override fun onSetReport(device: BluetoothDevice?, type: Byte, id: Byte, data: ByteArray?) {
+            super.onSetReport(device, type, id, data)
+            Log.i(TAG, "onSetReport: device=${device?.address}, type=$type, id=$id, dataLen=${data?.size}")
+            // Acknowledge host reports (e.g., NumLock / CapsLock keyboard LEDs)
+            val proxy = hidProxy
+            if (proxy != null && device != null) {
+                proxy.reportError(device, BluetoothHidDevice.ERROR_RSP_SUCCESS)
+            }
+        }
+
+        override fun onSetProtocol(device: BluetoothDevice?, protocol: Byte) {
+            super.onSetProtocol(device, protocol)
+            Log.i(TAG, "onSetProtocol: device=${device?.address}, protocol=$protocol")
+            val proxy = hidProxy
+            if (proxy != null && device != null) {
+                proxy.reportError(device, BluetoothHidDevice.ERROR_RSP_SUCCESS)
+            }
+        }
+
+        override fun onVirtualCableUnplug(device: BluetoothDevice?) {
+            super.onVirtualCableUnplug(device)
+            Log.i(TAG, "onVirtualCableUnplug: device=${device?.address}")
+            connectionState = BluetoothProfile.STATE_DISCONNECTED
+            if (connectedDevice?.address == device?.address) {
+                connectedDevice = null
+            }
+            notifyEvent("device_disconnected", "Host initiated virtual cable unplug.")
         }
     }
 
@@ -227,25 +288,21 @@ class BluetoothHidManager(private val context: Context) {
             HidReportDescriptor.DESCRIPTOR
         )
 
-        val qos = BluetoothHidDeviceAppQosSettings(
-            BluetoothHidDeviceAppQosSettings.SERVICE_BEST_EFFORT,
-            800,
-            9,
-            0,
-            11250,
-            BluetoothHidDeviceAppQosSettings.MAX
-        )
-
+        // Pass null for inQos & outQos to enable universal Windows 10/11 L2CAP compatibility
         return try {
-            proxy.registerApp(sdp, null, qos, executor, hidCallback)
+            val result = proxy.registerApp(sdp, null, null, executor, hidCallback)
+            Log.i(TAG, "proxy.registerApp returned $result")
+            result
         } catch (se: SecurityException) {
             isRegistering = false
             lastError = "SecurityException during registerApp: ${se.message}"
+            Log.e(TAG, lastError!!)
             notifyEvent("error", lastError!!)
             false
         } catch (e: Exception) {
             isRegistering = false
             lastError = "Exception during registerApp: ${e.message}"
+            Log.e(TAG, lastError!!)
             notifyEvent("error", lastError!!)
             false
         }
@@ -275,11 +332,6 @@ class BluetoothHidManager(private val context: Context) {
      */
     fun connectToDevice(address: String): Boolean {
         val adapter = bluetoothAdapter ?: return false
-        val proxy = hidProxy ?: run {
-            lastError = "HID profile is not ready."
-            return false
-        }
-
         val device = try {
             adapter.getRemoteDevice(address)
         } catch (e: Exception) {
@@ -287,14 +339,34 @@ class BluetoothHidManager(private val context: Context) {
             return false
         }
 
-        return try {
+        val proxy = hidProxy
+        if (proxy == null) {
+            pendingConnectDevice = device
+            initProfile()
+            return true
+        }
+
+        if (!isRegistered) {
+            pendingConnectDevice = device
             registerHid()
+            return true
+        }
+
+        return connectInternal(device)
+    }
+
+    private fun connectInternal(device: BluetoothDevice): Boolean {
+        val proxy = hidProxy ?: return false
+        return try {
             connectedDevice = device
             connectionState = BluetoothProfile.STATE_CONNECTING
             notifyEvent("device_connecting", "Connecting to ${safeGetDeviceName(device)}...")
-            proxy.connect(device)
+            val ok = proxy.connect(device)
+            Log.i(TAG, "proxy.connect(${device.address}) returned $ok")
+            ok
         } catch (e: Exception) {
             lastError = "Error connecting to device: ${e.message}"
+            Log.e(TAG, lastError!!)
             notifyEvent("error", lastError!!)
             false
         }
@@ -456,12 +528,28 @@ class BluetoothHidManager(private val context: Context) {
      * Send input report with Report ID.
      */
     fun sendReport(reportId: Byte, data: ByteArray): Boolean {
-        val proxy = hidProxy ?: return false
-        val device = connectedDevice ?: return false
-        if (connectionState != BluetoothProfile.STATE_CONNECTED) return false
+        val proxy = hidProxy ?: run {
+            Log.w(TAG, "sendReport dropped: hidProxy is null")
+            return false
+        }
+        val device = connectedDevice ?: run {
+            val list = proxy.connectedDevices
+            if (!list.isNullOrEmpty()) {
+                connectedDevice = list[0]
+                connectionState = BluetoothProfile.STATE_CONNECTED
+                list[0]
+            } else {
+                Log.w(TAG, "sendReport dropped: no connected device (connectionState=${connectionStateToString(connectionState)})")
+                return false
+            }
+        }
 
         return try {
-            proxy.sendReport(device, reportId.toInt(), data)
+            val sent = proxy.sendReport(device, reportId.toInt(), data)
+            if (!sent) {
+                Log.w(TAG, "proxy.sendReport(id=$reportId) returned false for ${device.address}")
+            }
+            sent
         } catch (e: Exception) {
             Log.e(TAG, "sendReport error: ${e.message}")
             false
