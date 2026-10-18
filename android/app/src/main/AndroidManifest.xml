@@ -1,16 +1,21 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Bluetooth hardware requirement -->
-    <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
 
-    <!-- Bluetooth permissions for Android 12+ (API 31+) -->
+    <!-- Bluetooth Permissions for Android 12+ (API 31+) -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
-        android:usesPermissionFlags="neverForLocation" />
 
-    <!-- Legacy Bluetooth permissions for Android 9-11 (API 28-30) -->
+    <!-- Legacy Bluetooth Permissions for API <= 30 -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="30" />
+
+    <!-- Audio Recording for Google Speech Recognizer (Speak-to-Type) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Features -->
+    <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
 
     <application
         android:label="Ezze Control"
@@ -50,6 +55,12 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

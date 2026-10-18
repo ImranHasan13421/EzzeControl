@@ -1,42 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'app/app_theme.dart';
-import 'data/bluetooth_hid_repository.dart';
-import 'data/settings_repository.dart';
-import 'features/home/home_shell.dart';
+import 'features/home/home_screen.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Dark navigation and status bar style
+  // Set system UI overlay style for dark background
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.light,
-      systemNavigationBarColor: AppTheme.background,
+      systemNavigationBarColor: Color(0xFF131519),
       systemNavigationBarIconBrightness: Brightness.light,
     ),
   );
 
-  final repository = BluetoothHidRepository();
-  final settingsRepository = SettingsRepository();
-  runApp(
-    EzzeControlApp(
-      repository: repository,
-      settingsRepository: settingsRepository,
-    ),
-  );
+  runApp(const EzzeControlApp());
 }
 
 class EzzeControlApp extends StatelessWidget {
-  final BluetoothHidRepository repository;
-  final SettingsRepository settingsRepository;
-
-  const EzzeControlApp({
-    super.key,
-    required this.repository,
-    required this.settingsRepository,
-  });
+  const EzzeControlApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -44,10 +28,7 @@ class EzzeControlApp extends StatelessWidget {
       title: 'Ezze Control',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      home: HomeShell(
-        repository: repository,
-        settingsRepository: settingsRepository,
-      ),
+      home: const HomeScreen(),
     );
   }
 }

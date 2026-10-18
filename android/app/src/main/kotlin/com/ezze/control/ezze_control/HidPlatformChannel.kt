@@ -1,51 +1,55 @@
 package com.ezze.control.ezze_control
 
-import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.provider.Settings
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
 /**
- * Handles communication between Flutter and native Android BluetoothHidManager.
+ * Flutter Platform Channel bridging Dart calls to native Bluetooth HID Manager.
  */
 class HidPlatformChannel(
-    private val activity: Activity,
-    private val hidManager: BluetoothHidManager
+    private val context: Context,
+    private val hidManager: BluetoothHidManager,
+    private val activityCallbacks: ActivityCallbacks
 ) : MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
 
+    interface ActivityCallbacks {
+        fun requestPermissions(callback: (Boolean) -> Unit)
+        fun startSpeechRecognition(callback: (String?) -> Unit)
+    }
+
     companion object {
-        const val METHOD_CHANNEL_NAME = "com.ezze.control/hid"
-        const val EVENT_CHANNEL_NAME = "com.ezze.control/events"
+        private const val METHOD_CHANNEL = "com.ezze.control/hid"
+        private const val EVENT_CHANNEL = "com.ezze.control/events"
     }
 
     private var methodChannel: MethodChannel? = null
     private var eventChannel: EventChannel? = null
     private var eventSink: EventChannel.EventSink? = null
 
-    var onRequestPermissionsHandler: ((onResult: (Boolean) -> Unit) -> Unit)? = null
-
     fun register(messenger: BinaryMessenger) {
-        methodChannel = MethodChannel(messenger, METHOD_CHANNEL_NAME)
-        methodChannel?.setMethodCallHandler(this)
+        methodChannel = MethodChannel(messenger, METHOD_CHANNEL).apply {
+            setMethodCallHandler(this@HidPlatformChannel)
+        }
+        eventChannel = EventChannel(messenger, EVENT_CHANNEL).apply {
+            setStreamHandler(this@HidPlatformChannel)
+        }
 
-        eventChannel = EventChannel(messenger, EVENT_CHANNEL_NAME)
-        eventChannel?.setStreamHandler(this)
-
-        hidManager.onEventCallback = { event ->
-            activity.runOnUiThread {
-                eventSink?.success(event)
-            }
+        hidManager.onEventCallback = { payload ->
+            eventSink?.success(payload)
         }
     }
 
     fun unregister() {
         methodChannel?.setMethodCallHandler(null)
-        methodChannel = null
         eventChannel?.setStreamHandler(null)
-        eventChannel = null
-        eventSink = null
         hidManager.onEventCallback = null
+        methodChannel = null
+        eventChannel = null
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -53,106 +57,146 @@ class HidPlatformChannel(
             "getCapabilities" -> {
                 result.success(hidManager.getCapabilities())
             }
-            "requestPermissions" -> {
-                onRequestPermissionsHandler?.invoke { granted ->
-                    result.success(granted)
-                } ?: run {
-                    result.success(hidManager.hasRequiredPermissions())
-                }
+
+            "initProfile" -> {
+                val ok = hidManager.initProfile()
+                result.success(ok)
             }
-            "requestHidRegistration" -> {
-                val success = hidManager.requestHidRegistration()
-                result.success(success)
+
+            "registerApp" -> {
+                val ok = hidManager.registerHid()
+                result.success(ok)
             }
-            "unregisterHid" -> {
-                val success = hidManager.unregisterHid()
-                result.success(success)
+
+            "unregisterApp" -> {
+                val ok = hidManager.unregisterHid()
+                result.success(ok)
             }
-            "getStatus" -> {
-                result.success(hidManager.getCapabilities())
+
+            "getPairedDevices" -> {
+                val devices = hidManager.getPairedDevices()
+                result.success(devices)
             }
-            "getBondedDevices" -> {
-                result.success(hidManager.getBondedDevices())
+
+            "startDiscovery" -> {
+                val ok = hidManager.startDiscovery()
+                result.success(ok)
             }
-            "connectHost" -> {
+
+            "stopDiscovery" -> {
+                val ok = hidManager.stopDiscovery()
+                result.success(ok)
+            }
+
+            "getDiscoveredDevices" -> {
+                val devices = hidManager.getDiscoveredDevices()
+                result.success(devices)
+            }
+
+            "connect" -> {
                 val address = call.argument<String>("address")
-                if (address != null) {
-                    val success = hidManager.connectHost(address)
-                    result.success(success)
+                if (address.isNullOrEmpty()) {
+                    result.error("INVALID_ARG", "Device address cannot be empty.", null)
                 } else {
-                    result.error("INVALID_ARGUMENT", "Host address cannot be null", null)
+                    val ok = hidManager.connectToDevice(address)
+                    result.success(ok)
                 }
             }
-            "unpairHost" -> {
+
+            "disconnect" -> {
+                val ok = hidManager.disconnect()
+                result.success(ok)
+            }
+
+            "unpair" -> {
                 val address = call.argument<String>("address")
-                if (address != null) {
-                    val success = hidManager.unpairHost(address)
-                    result.success(success)
+                if (address.isNullOrEmpty()) {
+                    result.error("INVALID_ARG", "Device address cannot be empty.", null)
                 } else {
-                    result.error("INVALID_ARGUMENT", "Host address cannot be null", null)
+                    val ok = hidManager.unpairDevice(address)
+                    result.success(ok)
                 }
             }
-            "makeDiscoverable" -> {
-                hidManager.makeDiscoverable()
-                result.success(true)
-            }
+
             "openBluetoothSettings" -> {
-                hidManager.openBluetoothSettings()
-                result.success(true)
+                try {
+                    val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(intent)
+                    result.success(true)
+                } catch (e: Exception) {
+                    result.error("INTENT_ERROR", "Could not open Bluetooth settings: ${e.message}", null)
+                }
             }
-            "sendTestMouseMovement" -> {
-                val success = hidManager.sendTestMouseMovement()
-                result.success(success)
-            }
-            "sendTestKey" -> {
-                val success = hidManager.sendTestKey()
-                result.success(success)
-            }
+
             "sendMouseMovement" -> {
-                val buttons = (call.argument<Int>("buttons") ?: 0).toByte()
                 val dx = call.argument<Int>("dx") ?: 0
                 val dy = call.argument<Int>("dy") ?: 0
+                val buttons = (call.argument<Int>("buttons") ?: 0).toByte()
                 val wheel = call.argument<Int>("wheel") ?: 0
-                val success = hidManager.sendMouseMovement(buttons, dx, dy, wheel)
-                result.success(success)
+                val ok = hidManager.sendMouseMovement(buttons, dx, dy, wheel)
+                result.success(ok)
             }
-            "sendMouseReport" -> {
-                val data = call.argument<ByteArray>("data")
-                if (data != null) {
-                    val success = hidManager.sendReport(HidReportDescriptor.REPORT_ID_MOUSE, data)
-                    result.success(success)
-                } else {
-                    result.error("INVALID_ARGUMENT", "Mouse report data was null", null)
+
+            "sendMouseClick" -> {
+                val buttonStr = call.argument<String>("button") ?: "left"
+                val isDouble = call.argument<Boolean>("isDouble") ?: false
+                val mask: Byte = when (buttonStr.lowercase()) {
+                    "right" -> HidReportEncoder.MOUSE_BUTTON_RIGHT
+                    "middle" -> HidReportEncoder.MOUSE_BUTTON_MIDDLE
+                    else -> HidReportEncoder.MOUSE_BUTTON_LEFT
+                }
+                val ok = hidManager.sendMouseClick(mask, isDouble)
+                result.success(ok)
+            }
+
+            "sendMouseDown" -> {
+                val buttons = (call.argument<Int>("buttons") ?: HidReportEncoder.MOUSE_BUTTON_LEFT.toInt()).toByte()
+                val ok = hidManager.sendMouseMovement(buttons, 0, 0, 0)
+                result.success(ok)
+            }
+
+            "sendMouseUp" -> {
+                val ok = hidManager.sendMouseMovement(0, 0, 0, 0)
+                result.success(ok)
+            }
+
+            "sendKey" -> {
+                val keyCode = (call.argument<Int>("keyCode") ?: 0).toByte()
+                val modifier = (call.argument<Int>("modifier") ?: 0).toByte()
+                val ok = hidManager.sendKey(keyCode, modifier)
+                result.success(ok)
+            }
+
+            "sendText" -> {
+                val text = call.argument<String>("text") ?: ""
+                val ok = hidManager.sendText(text)
+                result.success(ok)
+            }
+
+            "releaseAll" -> {
+                val ok = hidManager.releaseAllInputs()
+                result.success(ok)
+            }
+
+            "requestSpeechInput" -> {
+                activityCallbacks.startSpeechRecognition { recognizedText ->
+                    result.success(recognizedText)
                 }
             }
-            "sendKeyboardReport" -> {
-                val data = call.argument<ByteArray>("data")
-                if (data != null) {
-                    val success = hidManager.sendReport(HidReportDescriptor.REPORT_ID_KEYBOARD, data)
-                    result.success(success)
-                } else {
-                    result.error("INVALID_ARGUMENT", "Keyboard report data was null", null)
+
+            "checkPermissions" -> {
+                val missing = hidManager.getMissingPermissions()
+                result.success(missing)
+            }
+
+            "requestPermissions" -> {
+                activityCallbacks.requestPermissions { granted ->
+                    result.success(granted)
                 }
             }
-            "releaseAllInputs" -> {
-                val success = hidManager.releaseAllInputs()
-                result.success(success)
-            }
-            "disconnect" -> {
-                val success = hidManager.disconnect()
-                result.success(success)
-            }
-            "setKeepScreenOn" -> {
-                val enabled = call.argument<Boolean>("enabled") ?: false
-                activity.runOnUiThread {
-                    if (enabled) {
-                        activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                    } else {
-                        activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                    }
-                }
-                result.success(true)
-            }
+
             else -> {
                 result.notImplemented()
             }
@@ -160,17 +204,10 @@ class HidPlatformChannel(
     }
 
     override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-        eventSink = events
-        val initialStatus = mutableMapOf<String, Any?>(
-            "type" to "initial_state",
-            "message" to "Stream subscribed.",
-            "timestamp" to System.currentTimeMillis()
-        )
-        initialStatus.putAll(hidManager.getCapabilities())
-        eventSink?.success(initialStatus)
+        this.eventSink = events
     }
 
     override fun onCancel(arguments: Any?) {
-        eventSink = null
+        this.eventSink = null
     }
 }
