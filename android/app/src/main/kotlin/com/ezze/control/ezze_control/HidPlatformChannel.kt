@@ -119,6 +119,16 @@ class HidPlatformChannel(
                 }
             }
 
+            "pair" -> {
+                val address = call.argument<String>("address")
+                if (address.isNullOrEmpty()) {
+                    result.error("INVALID_ARG", "Device address cannot be empty.", null)
+                } else {
+                    val ok = hidManager.pairDevice(address)
+                    result.success(ok)
+                }
+            }
+
             "openBluetoothSettings" -> {
                 try {
                     val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS).apply {

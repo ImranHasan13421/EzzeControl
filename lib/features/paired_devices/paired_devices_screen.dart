@@ -14,6 +14,7 @@ class PairedDevicesScreen extends StatefulWidget {
 
 class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
   final BluetoothHidRepository _hidRepo = BluetoothHidRepository();
+  bool _navigatedToMousePad = false;
 
   @override
   void initState() {
@@ -29,7 +30,23 @@ class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
   }
 
   void _onRepoChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+
+    // Auto-navigate to Mouse Pad if device connected and user hasn't navigated yet
+    if (_hidRepo.connectionState == 'CONNECTED' && !_navigatedToMousePad) {
+      final dev = _hidRepo.activeDevice ?? _hidRepo.pairedDevices.firstOrNull;
+      if (dev != null) {
+        _navigatedToMousePad = true;
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => MousePadScreen(device: dev),
+          ),
+        ).then((_) {
+          _navigatedToMousePad = false;
+        });
+      }
+    }
   }
 
   void _loadDevices() async {
@@ -44,7 +61,6 @@ class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
         device: device,
         onConnect: () async {
           Navigator.of(ctx).pop(); // Dismiss dialog
-          // Show connecting indicator
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Connecting to ${device.name}...'),
@@ -56,14 +72,297 @@ class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
           await _hidRepo.connect(device);
 
           if (mounted) {
-            // Navigate to Mouse Pad screen (5th image)
+            _navigatedToMousePad = true;
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => MousePadScreen(device: device),
               ),
-            );
+            ).then((_) {
+              _navigatedToMousePad = false;
+            });
           }
         },
+      ),
+    );
+  }
+
+  void _showPairDialog(BtDevice device) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E222A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Pair with ${device.name}?',
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Device Address: ${device.address}',
+              style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Ezze Control will initiate Bluetooth pairing with your PC and connect as a composite Mouse & Keyboard.',
+              style: TextStyle(color: Colors.white70, fontSize: 14),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2563EB).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF2563EB).withValues(alpha: 0.3)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, color: Color(0xFF60A5FA), size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Keep this app open and confirm the pairing PIN code on both your PC and phone.',
+                      style: TextStyle(color: Color(0xFF93C5FD), fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel', style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2563EB),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Pairing with ${device.name}... Confirm PIN on screen'),
+                  backgroundColor: const Color(0xFF2563EB),
+                  duration: const Duration(seconds: 4),
+                ),
+              );
+              await _hidRepo.pair(device);
+            },
+            child: const Text('Pair & Connect', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _startPairPcWorkflow() async {
+    await _hidRepo.makeDiscoverable();
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1E222A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (modalCtx, setModalState) {
+            final isConnected = _hidRepo.connectionState == 'CONNECTED';
+            final activeDev = _hidRepo.activeDevice ?? _hidRepo.pairedDevices.firstOrNull;
+
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2563EB).withValues(alpha: 0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.bluetooth_searching, color: Color(0xFF38BDF8), size: 28),
+                      ),
+                      const SizedBox(width: 14),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Pairing with Windows PC',
+                              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Phone is visible for 5 minutes',
+                              style: TextStyle(color: Color(0xFF38BDF8), fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF131519),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Follow these steps on your PC now:',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildStepItem('1', 'Open Windows Settings > Bluetooth & devices'),
+                        _buildStepItem('2', 'Click "Add device" -> "Bluetooth"'),
+                        _buildStepItem('3', 'Select your phone from the list'),
+                        _buildStepItem('4', 'Confirm the PIN on PC and Phone'),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.4)),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded, color: Color(0xFFF87171), size: 22),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Keep Ezze Control open! Do not switch to phone settings, so Windows connects as a Mouse & Keyboard.',
+                            style: TextStyle(color: Color(0xFFFECACA), fontSize: 12, height: 1.3),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  if (isConnected) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF22C55E).withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFF22C55E)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.check_circle, color: Color(0xFF22C55E)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Connected to ${activeDev?.name ?? "PC"}!',
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF22C55E)),
+                            onPressed: () {
+                              Navigator.of(ctx).pop();
+                              if (activeDev != null) {
+                                _navigatedToMousePad = true;
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(builder: (_) => MousePadScreen(device: activeDev)),
+                                ).then((_) => _navigatedToMousePad = false);
+                              }
+                            },
+                            child: const Text('Open Mouse Pad'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ] else ...[
+                    Row(
+                      children: [
+                        const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            'Waiting for Windows to discover phone...',
+                            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.of(ctx).pop(),
+                          child: const Text('Close', style: TextStyle(color: Color(0xFF94A3B8))),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildStepItem(String num, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 20,
+            height: 20,
+            decoration: const BoxDecoration(
+              color: Color(0xFF2563EB),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                num,
+                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -97,18 +396,7 @@ class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
           IconButton(
             icon: const Icon(Icons.bluetooth_searching, color: Color(0xFF38BDF8), size: 24),
             tooltip: 'Make Discoverable to PC',
-            onPressed: () async {
-              await _hidRepo.makeDiscoverable();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Phone is now discoverable. On PC, click "Add device > Bluetooth"'),
-                    backgroundColor: Color(0xFF2563EB),
-                    duration: Duration(seconds: 4),
-                  ),
-                );
-              }
-            },
+            onPressed: _startPairPcWorkflow,
           ),
           // Open phone Bluetooth settings button (matching 2nd image)
           IconButton(
@@ -154,10 +442,10 @@ class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
                 children: [
                   const Icon(Icons.laptop_chromebook, color: Color(0xFF60A5FA), size: 28),
                   const SizedBox(width: 12),
-                  Expanded(
+                  const Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
+                      children: [
                         Text(
                           'Pairing with a PC?',
                           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
@@ -178,7 +466,7 @@ class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
-                    onPressed: () => _hidRepo.makeDiscoverable(),
+                    onPressed: _startPairPcWorkflow,
                     child: const Text('Pair PC', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                   ),
                 ],
@@ -216,8 +504,21 @@ class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
 
             const SizedBox(height: 24),
 
-            // Section 2 Header: Available Devices (matching 2nd image)
-            _buildSectionHeader('Available Devices'),
+            // Section 2 Header: Available Devices (matching 2nd image) with rescan button
+            _buildSectionHeader(
+              'Available Devices',
+              trailing: IconButton(
+                icon: _hidRepo.isScanning
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.refresh, color: Colors.white70, size: 20),
+                tooltip: 'Scan for Devices',
+                onPressed: () => _hidRepo.startDiscovery(),
+              ),
+            ),
             const SizedBox(height: 16),
 
             if (availableList.isEmpty)
@@ -240,6 +541,12 @@ class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
                           width: 24,
                           height: 24,
                           child: CircularProgressIndicator(strokeWidth: 2.5),
+                        )
+                      else
+                        TextButton.icon(
+                          icon: const Icon(Icons.search, size: 18),
+                          label: const Text('Scan Now'),
+                          onPressed: () => _hidRepo.startDiscovery(),
                         ),
                     ],
                   ),
@@ -253,22 +560,31 @@ class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
     );
   }
 
-  Widget _buildSectionHeader(String title) {
+  Widget _buildSectionHeader(String title, {Widget? trailing}) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
         color: const Color(0xFF1E222A), // Dark container matching 2nd image
         borderRadius: BorderRadius.circular(10),
       ),
-      child: Text(
-        title,
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-        ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const SizedBox(width: 24), // Spacer for centering
+          Expanded(
+            child: Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          if (trailing != null) trailing else const SizedBox(width: 24),
+        ],
       ),
     );
   }
@@ -284,7 +600,13 @@ class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: () => _showConnectDialog(device),
+          onTap: () {
+            if (isAvailable) {
+              _showPairDialog(device);
+            } else {
+              _showConnectDialog(device);
+            }
+          },
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Row(

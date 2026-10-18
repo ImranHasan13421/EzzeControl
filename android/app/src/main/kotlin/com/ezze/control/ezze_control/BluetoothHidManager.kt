@@ -60,6 +60,64 @@ class BluetoothHidManager(private val context: Context) {
     // Discovered devices collection (address -> Map)
     private val discoveredDevices = mutableMapOf<String, Map<String, Any?>>()
     private var discoveryReceiver: BroadcastReceiver? = null
+    private var systemReceiver: BroadcastReceiver? = null
+
+    init {
+        registerSystemReceiver()
+    }
+
+    private fun registerSystemReceiver() {
+        if (systemReceiver != null) return
+        val filter = IntentFilter().apply {
+            addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+            addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
+        }
+        systemReceiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
+                        val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                        }
+                        val bondState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)
+                        Log.i(TAG, "ACTION_BOND_STATE_CHANGED: device=${device?.address}, bondState=$bondState")
+                        if (device != null) {
+                            if (bondState == BluetoothDevice.BOND_BONDED) {
+                                notifyEvent("device_bonded", "Paired with ${safeGetDeviceName(device)}")
+                                if (pendingConnectDevice?.address == device.address || connectedDevice == null) {
+                                    pendingConnectDevice = null
+                                    Log.i(TAG, "Device bonded! Connecting HID profile to ${device.address} in 800ms...")
+                                    mainHandler.postDelayed({
+                                        connectToDevice(device.address)
+                                    }, 800)
+                                }
+                            } else if (bondState == BluetoothDevice.BOND_NONE) {
+                                notifyEvent("device_unbonded", "Device ${safeGetDeviceName(device)} unbonded.")
+                            }
+                        }
+                    }
+                    BluetoothAdapter.ACTION_STATE_CHANGED -> {
+                        val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+                        Log.i(TAG, "ACTION_STATE_CHANGED: state=$state")
+                        if (state == BluetoothAdapter.STATE_ON) {
+                            notifyEvent("bluetooth_enabled", "Bluetooth enabled.")
+                            initProfile()
+                        } else if (state == BluetoothAdapter.STATE_OFF) {
+                            notifyEvent("bluetooth_disabled", "Bluetooth disabled.")
+                        }
+                    }
+                }
+            }
+        }
+        try {
+            context.registerReceiver(systemReceiver, filter)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register systemReceiver: ${e.message}")
+        }
+    }
 
     // Listener callback for Flutter channel events
     var onEventCallback: ((event: Map<String, Any?>) -> Unit)? = null
@@ -449,6 +507,29 @@ class BluetoothHidManager(private val context: Context) {
     }
 
     /**
+     * Initiates pairing (bonding) with a remote device without leaving the app.
+     */
+    fun pairDevice(address: String): Boolean {
+        val adapter = bluetoothAdapter ?: return false
+        return try {
+            val device = adapter.getRemoteDevice(address)
+            if (device.bondState == BluetoothDevice.BOND_BONDED) {
+                Log.i(TAG, "Device $address is already bonded. Connecting HID directly...")
+                return connectToDevice(address)
+            }
+            pendingConnectDevice = device
+            Log.i(TAG, "Initiating createBond() for ${device.address} (${safeGetDeviceName(device)})")
+            notifyEvent("pairing_started", "Initiating pairing with ${safeGetDeviceName(device)}...")
+            device.createBond()
+        } catch (e: Exception) {
+            lastError = "pairDevice error: ${e.message}"
+            Log.e(TAG, lastError!!)
+            notifyEvent("error", lastError!!)
+            false
+        }
+    }
+
+    /**
      * Returns a list of bonded (paired) devices formatted for Flutter.
      */
     fun getPairedDevices(): List<Map<String, Any?>> {
@@ -790,6 +871,12 @@ class BluetoothHidManager(private val context: Context) {
 
     fun cleanup() {
         try {
+            if (systemReceiver != null) {
+                try {
+                    context.unregisterReceiver(systemReceiver)
+                } catch (_: Exception) {}
+                systemReceiver = null
+            }
             stopDiscovery()
             releaseAllInputs()
             unregisterHid()

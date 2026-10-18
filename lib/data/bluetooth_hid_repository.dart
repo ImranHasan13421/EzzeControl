@@ -26,6 +26,7 @@ class BluetoothHidRepository extends ChangeNotifier {
   BtDevice? get activeDevice => _activeDevice;
   bool get isConnected => _capabilities.isConnected;
   bool get isConnecting => _capabilities.isConnecting;
+  String get connectionState => _capabilities.connectionState;
 
   Future<void> init() async {
     _startEventListening();
@@ -163,6 +164,18 @@ class BluetoothHidRepository extends ChangeNotifier {
       return ok;
     } catch (e) {
       debugPrint('Error unpairing device: $e');
+      return false;
+    }
+  }
+
+  Future<bool> pair(BtDevice device) async {
+    try {
+      _activeDevice = device;
+      notifyListeners();
+      final ok = await _methodChannel.invokeMethod<bool>('pair', {'address': device.address}) ?? false;
+      return ok;
+    } catch (e) {
+      debugPrint('Error pairing device: $e');
       return false;
     }
   }
