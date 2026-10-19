@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../app/app_theme.dart';
 import '../../data/bluetooth_hid_repository.dart';
 import '../bt_devices/bt_devices_screen.dart';
 import '../guide/app_guide_screen.dart';
+import '../mouse_pad/mouse_pad_screen.dart';
 import '../paired_devices/paired_devices_screen.dart';
 import '../settings/app_settings_screen.dart';
 
@@ -121,6 +123,75 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 24),
 
+              // Active connection quick-launcher banner
+              if (caps.isConnected)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF065F46), Color(0xFF064E3B)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.6)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () {
+                        final dev = _hidRepo.activeDevice ?? _hidRepo.pairedDevices.firstOrNull;
+                        if (dev != null) {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => MousePadScreen(device: dev)),
+                          );
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 12,
+                              height: 12,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF10B981),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Connected to ${caps.connectedDeviceName ?? "PC"}',
+                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  const Text(
+                                    'Tap to resume Touchpad & Keyboard',
+                                    style: TextStyle(color: Color(0xFFA7F3D0), fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(Icons.arrow_forward_ios, color: Color(0xFFA7F3D0), size: 16),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
               // Permissions / Bluetooth warning banner (if needed)
               if (!caps.hasPermissions)
                 Container(
@@ -149,7 +220,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
 
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
 
               // 4 Options Grid (2x2) matching 1st image
               Expanded(
@@ -165,6 +236,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.tilePaired,
                       iconWidget: _buildPhoneBtIcon(),
                       onTap: () {
+                        HapticFeedback.lightImpact();
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => const PairedDevicesScreen(),
@@ -179,6 +251,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.tileBt,
                       iconWidget: _buildBtEmblemIcon(),
                       onTap: () {
+                        HapticFeedback.lightImpact();
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => const BtDevicesScreen(),
@@ -197,6 +270,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         color: Colors.white,
                       ),
                       onTap: () {
+                        HapticFeedback.lightImpact();
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => const AppSettingsScreen(),
@@ -215,6 +289,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         color: Colors.white,
                       ),
                       onTap: () {
+                        HapticFeedback.lightImpact();
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => const AppGuideScreen(),

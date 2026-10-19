@@ -438,6 +438,20 @@ class BluetoothHidManager(private val context: Context) {
     private fun connectInternal(device: BluetoothDevice): Boolean {
         val proxy = hidProxy ?: return false
         connectionTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+
+        // Check if device is ALREADY connected!
+        try {
+            val currentState = proxy.getConnectionState(device)
+            if (currentState == BluetoothProfile.STATE_CONNECTED) {
+                Log.i(TAG, "Device ${device.address} is ALREADY connected!")
+                connectedDevice = device
+                connectionState = BluetoothProfile.STATE_CONNECTED
+                lastError = null
+                notifyEvent("device_connected", "Connected to host: ${safeGetDeviceName(device)}")
+                return true
+            }
+        } catch (_: Exception) {}
+
         return try {
             connectedDevice = device
             connectionState = BluetoothProfile.STATE_CONNECTING
@@ -448,10 +462,18 @@ class BluetoothHidManager(private val context: Context) {
             // 8-second safety timeout in case Windows drops L2CAP connection silently
             val timeout = Runnable {
                 if (connectionState == BluetoothProfile.STATE_CONNECTING) {
-                    Log.w(TAG, "Connection attempt to ${device.address} timed out.")
-                    connectionState = BluetoothProfile.STATE_DISCONNECTED
-                    lastError = "Connection timed out. If you recently paired your phone, please remove and re-pair it in Windows Bluetooth Settings."
-                    notifyEvent("connection_failed", lastError!!)
+                    // Check once more before declaring timeout failure
+                    val realState = try { proxy.getConnectionState(device) } catch (_: Exception) { BluetoothProfile.STATE_DISCONNECTED }
+                    if (realState == BluetoothProfile.STATE_CONNECTED) {
+                        connectionState = BluetoothProfile.STATE_CONNECTED
+                        lastError = null
+                        notifyEvent("device_connected", "Connected to host: ${safeGetDeviceName(device)}")
+                    } else {
+                        Log.w(TAG, "Connection attempt to ${device.address} timed out.")
+                        connectionState = BluetoothProfile.STATE_DISCONNECTED
+                        lastError = "Connection timed out. If you recently paired your phone, please remove and re-pair it in Windows Bluetooth Settings."
+                        notifyEvent("connection_failed", lastError!!)
+                    }
                 }
             }
             connectionTimeoutRunnable = timeout
@@ -799,6 +821,26 @@ class BluetoothHidManager(private val context: Context) {
     fun getCapabilities(): Map<String, Any?> {
         val adapter = bluetoothAdapter
         val isBtEnabled = adapter?.isEnabled ?: false
+
+        // Refresh connection state from hardware proxy if available
+        hidProxy?.let { proxy ->
+            try {
+                val list = proxy.connectedDevices
+                if (!list.isNullOrEmpty()) {
+                    connectedDevice = list[0]
+                    connectionState = BluetoothProfile.STATE_CONNECTED
+                } else if (connectedDevice != null) {
+                    val state = proxy.getConnectionState(connectedDevice)
+                    if (state != connectionState) {
+                        connectionState = state
+                        if (state == BluetoothProfile.STATE_DISCONNECTED) {
+                            connectedDevice = null
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
         return mapOf(
             "isBluetoothSupported" to (adapter != null),
             "isBluetoothEnabled" to isBtEnabled,

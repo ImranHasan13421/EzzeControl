@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../data/bluetooth_hid_repository.dart';
 import '../../data/settings_repository.dart';
+import '../../domain/hid_key_codes.dart';
 import '../../domain/models.dart';
 import 'widgets/function_keys_sheet.dart';
 import 'widgets/media_remote_sheet.dart';
@@ -23,6 +24,7 @@ class MousePadScreen extends StatefulWidget {
 }
 
 class _MousePadScreenState extends State<MousePadScreen> {
+  static const String _kSentinel = '   '; // 3 spaces buffer for continuous backspaces
   final BluetoothHidRepository _hidRepo = BluetoothHidRepository();
   final SettingsRepository _settingsRepo = SettingsRepository();
 
@@ -34,6 +36,8 @@ class _MousePadScreenState extends State<MousePadScreen> {
   void initState() {
     super.initState();
     _settingsRepo.init();
+    _hidRepo.updateCapabilities();
+    _resetKeyboardBuffer();
     _keyboardFocusNode.addListener(() {
       if (mounted) {
         setState(() {
@@ -41,6 +45,13 @@ class _MousePadScreenState extends State<MousePadScreen> {
         });
       }
     });
+  }
+
+  void _resetKeyboardBuffer() {
+    _keyboardController.value = const TextEditingValue(
+      text: _kSentinel,
+      selection: TextSelection.collapsed(offset: 3),
+    );
   }
 
   @override
@@ -87,17 +98,36 @@ class _MousePadScreenState extends State<MousePadScreen> {
     if (_keyboardFocusNode.hasFocus) {
       _keyboardFocusNode.unfocus();
     } else {
+      _resetKeyboardBuffer();
       _keyboardFocusNode.requestFocus();
     }
   }
 
   void _onLiveKeyTyped(String newText) {
-    if (newText.isNotEmpty) {
-      // Send the newly typed character to the PC
-      final char = newText[newText.length - 1];
-      _hidRepo.sendText(char);
-      // Keep controller empty to accept continuous typing & backspaces cleanly
-      _keyboardController.clear();
+    if (newText.length < _kSentinel.length) {
+      // User tapped Backspace on the soft keyboard!
+      final count = _kSentinel.length - newText.length;
+      for (int i = 0; i < count; i++) {
+        _hidRepo.sendKey(HidKeyCodes.keyBackspace);
+      }
+      _resetKeyboardBuffer();
+      return;
+    }
+
+    if (newText.length > _kSentinel.length) {
+      // User typed characters or pressed Enter!
+      final added = newText.substring(_kSentinel.length);
+      for (int i = 0; i < added.length; i++) {
+        final char = added[i];
+        if (char == '\n' || char == '\r') {
+          // Line break / Enter key
+          _hidRepo.sendKey(HidKeyCodes.keyEnter);
+        } else {
+          _hidRepo.sendText(char);
+        }
+      }
+      _resetKeyboardBuffer();
+      return;
     }
   }
 
@@ -522,6 +552,9 @@ class _MousePadScreenState extends State<MousePadScreen> {
                     child: TextField(
                       focusNode: _keyboardFocusNode,
                       controller: _keyboardController,
+                      keyboardType: TextInputType.multiline,
+                      maxLines: null,
+                      textInputAction: TextInputAction.newline,
                       autocorrect: false,
                       enableSuggestions: false,
                       onChanged: _onLiveKeyTyped,

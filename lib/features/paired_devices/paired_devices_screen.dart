@@ -14,7 +14,6 @@ class PairedDevicesScreen extends StatefulWidget {
 
 class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
   final BluetoothHidRepository _hidRepo = BluetoothHidRepository();
-  bool _navigatedToMousePad = false;
 
   @override
   void initState() {
@@ -32,21 +31,6 @@ class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
   void _onRepoChanged() {
     if (!mounted) return;
     setState(() {});
-
-    // Auto-navigate to Mouse Pad if device connected and user hasn't navigated yet
-    if (_hidRepo.connectionState == 'CONNECTED' && !_navigatedToMousePad) {
-      final dev = _hidRepo.activeDevice ?? _hidRepo.pairedDevices.firstOrNull;
-      if (dev != null) {
-        _navigatedToMousePad = true;
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => MousePadScreen(device: dev),
-          ),
-        ).then((_) {
-          _navigatedToMousePad = false;
-        });
-      }
-    }
   }
 
   void _loadDevices() async {
@@ -72,14 +56,11 @@ class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
           await _hidRepo.connect(device);
 
           if (mounted) {
-            _navigatedToMousePad = true;
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => MousePadScreen(device: device),
               ),
-            ).then((_) {
-              _navigatedToMousePad = false;
-            });
+            );
           }
         },
       ),
@@ -293,10 +274,9 @@ class _PairedDevicesScreenState extends State<PairedDevicesScreen> {
                             onPressed: () {
                               Navigator.of(ctx).pop();
                               if (activeDev != null) {
-                                _navigatedToMousePad = true;
                                 Navigator.of(context).push(
                                   MaterialPageRoute(builder: (_) => MousePadScreen(device: activeDev)),
-                                ).then((_) => _navigatedToMousePad = false);
+                                );
                               }
                             },
                             child: const Text('Open Mouse Pad'),

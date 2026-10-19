@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../data/bluetooth_hid_repository.dart';
@@ -23,6 +22,9 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
   final Map<int, Offset> _activePointers = {};
   Offset? _lastSinglePointerPos;
   double _accumulatedScrollY = 0;
+  double _accumulatedDx = 0;
+  double _accumulatedDy = 0;
+  bool _isDispatching = false;
 
   // Tap & Drag state
   DateTime? _lastTapTime;
@@ -35,12 +37,40 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
   bool _twoFingerTapPossible = false;
   DateTime? _twoFingerDownTime;
 
+  void _dispatchMovement() {
+    if (_isDispatching) return;
+
+    final toSendX = _accumulatedDx.round().clamp(-127, 127);
+    final toSendY = _accumulatedDy.round().clamp(-127, 127);
+
+    if (toSendX == 0 && toSendY == 0) return;
+
+    _accumulatedDx -= toSendX;
+    _accumulatedDy -= toSendY;
+    _isDispatching = true;
+
+    widget.hidRepo.sendMouseMovement(
+      dx: toSendX,
+      dy: toSendY,
+      buttons: _isDragging ? 1 : 0,
+    ).then((_) {
+      _isDispatching = false;
+      if (_accumulatedDx.abs() >= 1.0 || _accumulatedDy.abs() >= 1.0) {
+        _dispatchMovement();
+      }
+    }).catchError((_) {
+      _isDispatching = false;
+    });
+  }
+
   void _onPointerDown(PointerDownEvent event) {
     _activePointers[event.pointer] = event.localPosition;
 
     if (_activePointers.length == 1) {
       _lastSinglePointerPos = event.localPosition;
       _hasMoved = false;
+      _accumulatedDx = 0;
+      _accumulatedDy = 0;
 
       // Check for double tap and hold (Select & Drag)
       final now = DateTime.now();
@@ -58,6 +88,8 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
       _twoFingerTapPossible = true;
       _twoFingerDownTime = DateTime.now();
       _accumulatedScrollY = 0;
+      _accumulatedDx = 0;
+      _accumulatedDy = 0;
       // If we were dragging with 1 finger, release it
       if (_isDragging) {
         _isDragging = false;
@@ -75,7 +107,7 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
         final delta = currentPos - _lastSinglePointerPos!;
         final dist = delta.distance;
 
-        if (dist > 3) {
+        if (dist > 0.4) {
           _hasMoved = true;
 
           // If second tap moved, lock into laptop-style Select & Drag!
@@ -87,19 +119,12 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
           }
 
           final speed = widget.settingsRepo.pointerSpeed;
-          // Apply non-linear acceleration for smooth fine control and quick leaps
-          final acceleratedDist = pow(dist, 1.15) * speed;
-          final angle = atan2(delta.dy, delta.dx);
-          final dx = (cos(angle) * acceleratedDist).round().clamp(-127, 127);
-          final dy = (sin(angle) * acceleratedDist).round().clamp(-127, 127);
+          // Smooth progressive acceleration curve for pixel-perfect tracking & fast leaps
+          final factor = (1.0 + (dist * 0.04).clamp(0.0, 3.0)) * speed;
+          _accumulatedDx += delta.dx * factor;
+          _accumulatedDy += delta.dy * factor;
 
-          if (dx != 0 || dy != 0) {
-            widget.hidRepo.sendMouseMovement(
-              dx: dx,
-              dy: dy,
-              buttons: _isDragging ? 1 : 0,
-            );
-          }
+          _dispatchMovement();
         }
       }
       _lastSinglePointerPos = currentPos;
@@ -109,7 +134,7 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
       final deltaY = event.delta.dy;
       _accumulatedScrollY += deltaY * widget.settingsRepo.scrollSpeed;
 
-      const scrollStep = 12.0;
+      const scrollStep = 10.0;
       if (_accumulatedScrollY.abs() >= scrollStep) {
         final wheelSteps = -(_accumulatedScrollY / scrollStep).round();
         if (wheelSteps != 0) {
@@ -158,6 +183,8 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
 
       _lastSinglePointerPos = null;
       _accumulatedScrollY = 0;
+      _accumulatedDx = 0;
+      _accumulatedDy = 0;
     } else if (_activePointers.length == 1 && _twoFingerTapPossible) {
       // Checked if it was a quick two-finger tap (Right Click)
       if (_twoFingerDownTime != null &&
@@ -179,6 +206,8 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
     if (_activePointers.isEmpty) {
       _lastSinglePointerPos = null;
       _accumulatedScrollY = 0;
+      _accumulatedDx = 0;
+      _accumulatedDy = 0;
     }
   }
 
